@@ -56,7 +56,6 @@
     },
     "runArgs": [
         "--cap-add=SYS_PTRACE",
-        "--privileged"
     ],
     "remoteUser": "vscode",
     "workspaceFolder": "/pwndbg",
