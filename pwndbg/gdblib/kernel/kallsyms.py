@@ -52,16 +52,16 @@ class Kallsyms:
         self.is_big_endian = None
 
         self.token_table = self.find_token_table()
-        if self.token_table:
-            # Assuming compressed kallsyms
-            self.is_uncompressed = False
-            self.token_index = self.find_token_index()
-            self.markers = self.find_markers()
-        else:
-            # Assuming uncompressed kallsyms
-            self.is_uncompressed = True
+        self.is_uncompressed = self.token_table is None
+
+        if self.is_uncompressed:
+            print(M.info("Detected Uncompressed Kallsyms"))
             self.find_names_uncompressed()
             self.markers = self.find_markers_uncompressed()
+        else:
+            print(M.info("Detected Compressed Kallsyms"))
+            self.token_index = self.find_token_index()
+            self.markers = self.find_markers()
 
         self.num_syms = self.find_num_syms()
         self.offsets = self.find_offsets()
@@ -122,7 +122,7 @@ class Kallsyms:
             if len(ascii_candidates) == 1:
                 candidates = ascii_candidates
             elif len(candidates) == 0:
-                print(M.error("No candidates for token_table, maybe uncompressed kallsyms"))
+                # print(M.error("No candidates for token_table, maybe uncompressed kallsyms"))
                 return None
 
         position = candidates[0]
