@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from re import match, search
+from re import match
+from re import search
 from struct import unpack_from
 
 from pwnlib.util.packing import p16
@@ -413,31 +414,35 @@ class Kallsyms:
             tokens = [chr(i) for i in range(256)]
 
         return tokens
-    
+
     def find_names_uncompressed(self):
         # Find the length byte-separated symbol names
-        ksymtab_match = search(rb'(?:[\x05-\x23][TWtbBrRAdD][a-z0-9_.]{4,34}){14}', self.kernel_ro_mem)
+        ksymtab_match = search(
+            rb"(?:[\x05-\x23][TWtbBrRAdD][a-z0-9_.]{4,34}){14}", self.kernel_ro_mem
+        )
 
         if not ksymtab_match:
             print(M.error("Failed to find kallsyms"))
             return None
-        
+
         kallsyms_names__offset = ksymtab_match.start(0)
 
         # Count the number of symbol names
         position = kallsyms_names__offset
         num_syms = 0
 
-        symbol_names = []
-
         while position + 1 < len(self.kernel_ro_mem):
-            if self.kernel_ro_mem[position] < 2 or chr(self.kernel_ro_mem[position + 1]).lower() not in 'abdrtvwginpcsu-?':
+            if (
+                self.kernel_ro_mem[position] < 2
+                or chr(self.kernel_ro_mem[position + 1]).lower() not in "abdrtvwginpcsu-?"
+            ):
                 break
 
+            symbol_name_and_type = self.kernel_ro_mem[
+                position + 1 : position + 1 + self.kernel_ro_mem[position]
+            ]
 
-            symbol_name_and_type = self.kernel_ro_mem[position + 1 : position + 1 + self.kernel_ro_mem[position]]
-
-            if not match(rb'^[\x21-\x7e]+$', symbol_name_and_type):
+            if not match(rb"^[\x21-\x7e]+$", symbol_name_and_type):
                 break
 
             position += 1 + self.kernel_ro_mem[position]
@@ -446,7 +451,7 @@ class Kallsyms:
         if num_syms < 100:
             print(M.error("Failed to find kallsyms"))
             return None
-        
+
         self.end_of_kallsyms_names_uncompressed = position
 
     def find_markers_uncompressed(self):
@@ -454,82 +459,82 @@ class Kallsyms:
         This function searches for the kallsyms_markers structure in the kernel memory
         Original Source: https://github.com/marin-m/vmlinux-to-elf/blob/master/vmlinux_to_elf/kallsyms_finder.py
         """
-        position =  self.end_of_kallsyms_names_uncompressed
+        position = self.end_of_kallsyms_names_uncompressed
         position += -position % 4
-        
+
         max_number_of_space_between_two_nulls = 0
-        
+
         # Go just after the first chunk of non-null bytes
-        
-        # while position + 1 < len(self.kernel_img) and self.kernel_img[position + 1] == 0:    
+
+        # while position + 1 < len(self.kernel_img) and self.kernel_img[position + 1] == 0:
         #     position += 1
 
         while position + 1 < len(self.kernel_ro_mem) and self.kernel_ro_mem[position + 1] == 0:
             position += 1
 
         for null_separated_bytes_chunks in range(20):
-            
-            num_non_null_bytes = 1 # we always start at a non-null byte in this loop
-            num_null_bytes = 1 # we will at least encounter one null byte before the end of this loop
-            
+            num_non_null_bytes = 1  # we always start at a non-null byte in this loop
+            num_null_bytes = (
+                1  # we will at least encounter one null byte before the end of this loop
+            )
+
             while True:
                 position += 1
                 assert position >= 0
-                
+
                 if self.kernel_ro_mem[position] == 0:
                     break
                 num_non_null_bytes += 1
-            
+
             while True:
                 position += 1
                 assert position >= 0
-                
+
                 if self.kernel_ro_mem[position] != 0:
                     break
                 num_null_bytes += 1
-            
+
             max_number_of_space_between_two_nulls = max(
-                max_number_of_space_between_two_nulls,
-                num_non_null_bytes + num_null_bytes)
-        
-        if max_number_of_space_between_two_nulls % 2 == 1: # There may be a leap to a shorter offset in the latest processed entries
+                max_number_of_space_between_two_nulls, num_non_null_bytes + num_null_bytes
+            )
+
+        if (
+            max_number_of_space_between_two_nulls % 2 == 1
+        ):  # There may be a leap to a shorter offset in the latest processed entries
             max_number_of_space_between_two_nulls -= 1
-        
+
         if max_number_of_space_between_two_nulls not in (2, 4, 8):
             print(M.error("Could not guess the architecture register size for kernel"))
             return None
-        
 
         self.offset_table_element_size = max_number_of_space_between_two_nulls
 
         # Once the size of a long has been guessed, use it to find
         # the first offset (0)
-        
-        position =  self.end_of_kallsyms_names_uncompressed
+
+        position = self.end_of_kallsyms_names_uncompressed
         position += -position % 4
 
         # Go just at the first non-null byte
         while position < len(self.kernel_ro_mem) and self.kernel_ro_mem[position] == 0:
             position += 1
-        
-        
-        likely_is_big_endian = (position % self.offset_table_element_size > 1)
-        if self.is_big_endian is None: # Manual architecture specification
+
+        likely_is_big_endian = position % self.offset_table_element_size > 1
+        if self.is_big_endian is None:  # Manual architecture specification
             self.is_big_endian = likely_is_big_endian
-        
+
         if position % self.offset_table_element_size == 0:
             position += self.offset_table_element_size
         else:
             position += -position + self.offset_table_element_size
-        
+
         position -= self.offset_table_element_size
         position -= self.offset_table_element_size
-        
+
         position -= position % self.offset_table_element_size
-        
-        
+
         self.kallsyms_markers__offset = position
-        
+
         # print('Found kallsyms_markers at file offset 0x%08x' % position)
 
         return position
