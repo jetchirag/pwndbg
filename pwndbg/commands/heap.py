@@ -7,35 +7,33 @@ from typing import Dict
 from typing import List
 from typing import Set
 
-import gdb
 from tabulate import tabulate
 
 import pwndbg
+import pwndbg.aglib.heap
+import pwndbg.aglib.heap.jemalloc as jemalloc
+import pwndbg.aglib.memory
+import pwndbg.aglib.proc
+import pwndbg.aglib.typeinfo
+import pwndbg.aglib.vmmap
 import pwndbg.chain
 import pwndbg.color.context as C
 import pwndbg.color.memory as M
 import pwndbg.commands
-import pwndbg.gdblib.heap
-import pwndbg.gdblib.heap.jemalloc as jemalloc
-import pwndbg.gdblib.memory
-import pwndbg.gdblib.proc
-import pwndbg.gdblib.symbol
-import pwndbg.gdblib.typeinfo
-import pwndbg.gdblib.vmmap
 import pwndbg.glibc
 import pwndbg.lib.heap.helpers
+from pwndbg.aglib.heap import heap_chain_limit
+from pwndbg.aglib.heap.ptmalloc import Arena
+from pwndbg.aglib.heap.ptmalloc import Bins
+from pwndbg.aglib.heap.ptmalloc import BinType
+from pwndbg.aglib.heap.ptmalloc import Chunk
+from pwndbg.aglib.heap.ptmalloc import DebugSymsHeap
+from pwndbg.aglib.heap.ptmalloc import GlibcMemoryAllocator
+from pwndbg.aglib.heap.ptmalloc import Heap
 from pwndbg.color import generateColorFunction
 from pwndbg.color import message
 from pwndbg.commands import CommandCategory
 from pwndbg.commands.config import display_config
-from pwndbg.gdblib.heap import heap_chain_limit
-from pwndbg.gdblib.heap.ptmalloc import Arena
-from pwndbg.gdblib.heap.ptmalloc import Bins
-from pwndbg.gdblib.heap.ptmalloc import BinType
-from pwndbg.gdblib.heap.ptmalloc import Chunk
-from pwndbg.gdblib.heap.ptmalloc import DebugSymsHeap
-from pwndbg.gdblib.heap.ptmalloc import GlibcMemoryAllocator
-from pwndbg.gdblib.heap.ptmalloc import Heap
 
 
 def read_chunk(addr: int) -> Dict[str, int]:
@@ -43,25 +41,25 @@ def read_chunk(addr: int) -> Dict[str, int]:
     # In GLIBC versions <= 2.24 the `mchunk_[prev_]size` field was named `[prev_]size`.
     # To support both versions, change the new names to the old ones here so that
     # the rest of the code can deal with uniform names.
-    assert isinstance(pwndbg.gdblib.heap.current, GlibcMemoryAllocator)
-    assert pwndbg.gdblib.heap.current.malloc_chunk is not None
+    assert isinstance(pwndbg.aglib.heap.current, GlibcMemoryAllocator)
+    assert pwndbg.aglib.heap.current.malloc_chunk is not None
     renames = {
         "mchunk_size": "size",
         "mchunk_prev_size": "prev_size",
     }
-    if isinstance(pwndbg.gdblib.heap.current, DebugSymsHeap):
-        val = pwndbg.gdblib.memory.get_typed_pointer_value(
-            pwndbg.gdblib.heap.current.malloc_chunk, addr
+    if isinstance(pwndbg.aglib.heap.current, DebugSymsHeap):
+        val = pwndbg.aglib.memory.get_typed_pointer_value(
+            pwndbg.aglib.heap.current.malloc_chunk, addr
         )
     else:
-        val = pwndbg.gdblib.heap.current.malloc_chunk(addr)
+        val = pwndbg.aglib.heap.current.malloc_chunk(addr)
     value_keys: List[str] = val.type.keys()
     return {renames.get(key, key): int(val[key]) for key in value_keys}
 
 
 def format_bin(bins: Bins, verbose: bool = False, offset: int | None = None) -> List[str]:
-    assert isinstance(pwndbg.gdblib.heap.current, GlibcMemoryAllocator)
-    allocator = pwndbg.gdblib.heap.current
+    assert isinstance(pwndbg.aglib.heap.current, GlibcMemoryAllocator)
+    allocator = pwndbg.aglib.heap.current
     if offset is None:
         offset = allocator.chunk_key_offset("fd")
 
@@ -110,7 +108,7 @@ def format_bin(bins: Bins, verbose: bool = False, offset: int | None = None) -> 
             if bins_type == BinType.LARGE:
                 start_size, end_size = allocator.largebin_size_range_from_index(size)
                 size = hex(start_size) + "-"
-                if end_size != pwndbg.gdblib.arch.ptrmask:
+                if end_size != pwndbg.aglib.arch.ptrmask:
                     size += hex(end_size)
                 else:
                     size += "\u221e"  # Unicode "infinity"
@@ -140,7 +138,7 @@ def format_bin(bins: Bins, verbose: bool = False, offset: int | None = None) -> 
 
 def print_no_arena_found_error(tid=None) -> None:
     if tid is None:
-        tid = pwndbg.gdblib.proc.thread_id
+        tid = pwndbg.aglib.proc.thread_id
     print(
         message.notice(
             f"No arena found for thread {message.hint(tid)} (the thread hasn't performed any allocations)."
@@ -150,7 +148,7 @@ def print_no_arena_found_error(tid=None) -> None:
 
 def print_no_tcache_bins_found_error(tid: int | None = None) -> None:
     if tid is None:
-        tid = pwndbg.gdblib.proc.thread_id
+        tid = pwndbg.aglib.proc.thread_id
     print(
         message.notice(
             f"No tcache bins found for thread {message.hint(tid)} (the thread hasn't performed any allocations)."
@@ -187,7 +185,7 @@ def heap(addr: int | None = None, verbose: bool = False, simple: bool = False) -
     """Iteratively print chunks on a heap, default to the current thread's
     active heap.
     """
-    allocator = pwndbg.gdblib.heap.current
+    allocator = pwndbg.aglib.heap.current
     assert isinstance(allocator, GlibcMemoryAllocator)
 
     if addr is not None:
@@ -248,14 +246,14 @@ def hi(addr: int, verbose: bool = False, simple: bool = False, fake: bool = Fals
         if addr in chunk:
             malloc_chunk(chunk.address, verbose=verbose, simple=simple)
             if verbose:
-                start = chunk.address + (pwndbg.gdblib.arch.ptrsize if chunk.prev_inuse else 0x00)
+                start = chunk.address + (pwndbg.aglib.arch.ptrsize if chunk.prev_inuse else 0x00)
                 print(f"Your address: {hex(addr)}")
                 print(f"Head offset: {hex(addr - start)}")
                 if chunk.is_top_chunk is False and chunk.real_size is not None:
                     end = (
                         start
                         + chunk.real_size
-                        + (pwndbg.gdblib.arch.ptrsize if chunk.prev_inuse is False else 0x00)
+                        + (pwndbg.aglib.arch.ptrsize if chunk.prev_inuse is False else 0x00)
                     )
                     print(f"Tail offset: {hex(end - addr)}")
             break
@@ -276,14 +274,14 @@ parser.add_argument("addr", nargs="?", type=int, default=None, help="Address of 
 @pwndbg.commands.OnlyWhenUserspace
 def arena(addr: int | None = None) -> None:
     """Print the contents of an arena, default to the current thread's arena."""
-    allocator = pwndbg.gdblib.heap.current
+    allocator = pwndbg.aglib.heap.current
     assert isinstance(allocator, GlibcMemoryAllocator)
 
     if addr is not None:
         arena = Arena(addr)
     else:
         arena = allocator.thread_arena
-        tid = pwndbg.gdblib.proc.thread_id
+        tid = pwndbg.aglib.proc.thread_id
         # arena might be None if the current thread doesn't allocate the arena
         if arena is None:
             print_no_arena_found_error(tid)
@@ -306,7 +304,7 @@ parser = argparse.ArgumentParser(description="List this process's arenas.")
 @pwndbg.commands.OnlyWhenUserspace
 def arenas() -> None:
     """Lists this process's arenas."""
-    allocator = pwndbg.gdblib.heap.current
+    allocator = pwndbg.aglib.heap.current
     assert isinstance(allocator, GlibcMemoryAllocator)
 
     arenas = allocator.arenas
@@ -338,7 +336,7 @@ def arenas() -> None:
             text_color(hex(first_heap.start)),
         ]
 
-        for mapping_data in str(pwndbg.gdblib.vmmap.find(first_heap.start)).split():
+        for mapping_data in str(pwndbg.aglib.vmmap.find(first_heap.start)).split():
             row.append(M.c.heap(mapping_data))
 
         table.append(row)
@@ -350,7 +348,7 @@ def arenas() -> None:
                 text_color(hex(extra_heap.start)),
             ]
 
-            for mapping_data in str(pwndbg.gdblib.vmmap.find(extra_heap.start)).split():
+            for mapping_data in str(pwndbg.aglib.vmmap.find(extra_heap.start)).split():
                 row.append(M.c.heap(mapping_data))
 
             table.append(row)
@@ -375,12 +373,12 @@ def tcache(addr: int | None = None) -> None:
     """Print a thread's tcache contents, default to the current thread's
     tcache.
     """
-    allocator = pwndbg.gdblib.heap.current
+    allocator = pwndbg.aglib.heap.current
     assert isinstance(allocator, GlibcMemoryAllocator)
 
     tcache = allocator.get_tcache(addr)
     # if the current thread doesn't allocate the arena, tcache will be NULL
-    tid = pwndbg.gdblib.proc.thread_id
+    tid = pwndbg.aglib.proc.thread_id
     if tcache:
         print(
             message.notice(
@@ -402,7 +400,7 @@ parser = argparse.ArgumentParser(description="Print the mp_ struct's contents.")
 @pwndbg.commands.OnlyWhenUserspace
 def mp() -> None:
     """Print the mp_ struct's contents."""
-    allocator = pwndbg.gdblib.heap.current
+    allocator = pwndbg.aglib.heap.current
     assert isinstance(allocator, GlibcMemoryAllocator)
 
     print(message.notice("mp_ struct at: ") + message.hint(hex(allocator.mp.address)))
@@ -426,7 +424,7 @@ def top_chunk(addr: int | None = None) -> None:
     """Print relevant information about an arena's top chunk, default to the
     current thread's arena.
     """
-    allocator = pwndbg.gdblib.heap.current
+    allocator = pwndbg.aglib.heap.current
     assert isinstance(allocator, GlibcMemoryAllocator)
 
     if addr is not None:
@@ -472,7 +470,7 @@ def malloc_chunk(
     dump: bool = False,
 ) -> None:
     """Print a malloc_chunk struct's contents."""
-    allocator = pwndbg.gdblib.heap.current
+    allocator = pwndbg.aglib.heap.current
     assert isinstance(allocator, GlibcMemoryAllocator)
 
     chunk = Chunk(addr)
@@ -550,7 +548,7 @@ def malloc_chunk(
     if dump:
         print(C.banner("hexdump"))
 
-        ptr_size = pwndbg.gdblib.arch.ptrsize
+        ptr_size = pwndbg.aglib.arch.ptrsize
         pwndbg.commands.hexdump.hexdump(chunk.address, chunk.real_size + ptr_size)
 
     if next:
@@ -584,7 +582,7 @@ def bins(addr: int | None = None, tcache_addr: int | None = None) -> None:
     """Print the contents of all an arena's bins and a thread's tcache,
     default to the current thread's arena and tcache.
     """
-    allocator = pwndbg.gdblib.heap.current
+    allocator = pwndbg.aglib.heap.current
     assert isinstance(allocator, GlibcMemoryAllocator)
 
     if allocator.has_tcache():
@@ -621,7 +619,7 @@ def fastbins(addr: int | None = None, verbose: bool = False) -> None:
     """Print the contents of an arena's fastbins, default to the current
     thread's arena.
     """
-    allocator = pwndbg.gdblib.heap.current
+    allocator = pwndbg.aglib.heap.current
     assert isinstance(allocator, GlibcMemoryAllocator)
 
     fastbins = allocator.fastbins(addr)
@@ -657,7 +655,7 @@ def unsortedbin(addr: int | None = None, verbose: bool = False) -> None:
     """Print the contents of an arena's unsortedbin, default to the current
     thread's arena.
     """
-    allocator = pwndbg.gdblib.heap.current
+    allocator = pwndbg.aglib.heap.current
     assert isinstance(allocator, GlibcMemoryAllocator)
 
     unsortedbin = allocator.unsortedbin(addr)
@@ -693,7 +691,7 @@ def smallbins(addr: int | None = None, verbose: bool = False) -> None:
     """Print the contents of an arena's smallbins, default to the current
     thread's arena.
     """
-    allocator = pwndbg.gdblib.heap.current
+    allocator = pwndbg.aglib.heap.current
     assert isinstance(allocator, GlibcMemoryAllocator)
 
     smallbins = allocator.smallbins(addr)
@@ -729,7 +727,7 @@ def largebins(addr: int | None = None, verbose: bool = False) -> None:
     """Print the contents of an arena's largebins, default to the current
     thread's arena.
     """
-    allocator = pwndbg.gdblib.heap.current
+    allocator = pwndbg.aglib.heap.current
     assert isinstance(allocator, GlibcMemoryAllocator)
     largebins = allocator.largebins(addr)
 
@@ -762,7 +760,7 @@ parser.add_argument(
 @pwndbg.commands.OnlyWhenUserspace
 def tcachebins(addr: int | None = None, verbose: bool = False) -> None:
     """Print the contents of a tcache, default to the current thread's tcache."""
-    allocator = pwndbg.gdblib.heap.current
+    allocator = pwndbg.aglib.heap.current
     assert isinstance(allocator, GlibcMemoryAllocator)
 
     tcachebins = allocator.tcachebins(addr)
@@ -819,13 +817,16 @@ def find_fake_fast(
     glibc_fastbin_bug: bool = False,
 ) -> None:
     """Find candidate fake fast chunks overlapping the specified address."""
-    allocator = pwndbg.gdblib.heap.current
+    allocator = pwndbg.aglib.heap.current
     assert isinstance(allocator, GlibcMemoryAllocator)
 
     size_sz = allocator.size_sz
     min_chunk_size = allocator.min_chunk_size
     global_max_fast = allocator.global_max_fast
-    size_field_width = gdb.lookup_type("unsigned int").sizeof if glibc_fastbin_bug else size_sz
+    size_types = pwndbg.dbg.selected_inferior().types_with_name("unsigned int")
+    size_field_width = (
+        (size_types[0].sizeof if len(size_types) > 0 else size_sz) if glibc_fastbin_bug else size_sz
+    )
 
     if global_max_fast is None:
         print(
@@ -869,11 +870,11 @@ def find_fake_fast(
     search_start = target_address - max_candidate_size + size_sz
     search_end = target_address
 
-    if pwndbg.gdblib.memory.peek(search_start) is None:
+    if pwndbg.aglib.memory.peek(search_start) is None:
         search_start = pwndbg.lib.memory.page_size_align(search_start)
         if (
             search_start > (search_end - size_field_width)
-            or pwndbg.gdblib.memory.peek(search_start) is None
+            or pwndbg.aglib.memory.peek(search_start) is None
         ):
             print(
                 message.warn(
@@ -900,7 +901,7 @@ def find_fake_fast(
         )
     )
 
-    search_region = pwndbg.gdblib.memory.read(search_start, search_end - search_start, partial=True)
+    search_region = pwndbg.aglib.memory.read(search_start, search_end - search_start, partial=True)
 
     print(C.banner("FAKE CHUNKS"))
     step = allocator.malloc_alignment if align else 1
@@ -908,7 +909,7 @@ def find_fake_fast(
         candidate = search_region[i : i + size_field_width]
 
         if len(candidate) == size_field_width:
-            size_field = pwndbg.gdblib.arch.unpack_size(candidate, size_field_width)
+            size_field = pwndbg.aglib.arch.unpack_size(candidate, size_field_width)
             size_field &= ~(allocator.malloc_align_mask)
 
             if size_field < min_chunk_size or size_field > max_candidate_size:
@@ -983,13 +984,17 @@ def vis_heap_chunks(
     all_chunks: bool = False,
 ) -> None:
     """Visualize chunks on a heap, default to the current arena's active heap."""
-    allocator = pwndbg.gdblib.heap.current
+    allocator = pwndbg.aglib.heap.current
     assert isinstance(allocator, GlibcMemoryAllocator)
 
     # If the first argument (count) is big enough (and address isn't provided) interpret it as an address
     if addr is None and count is not None and count > 0x1000:
         addr = count
         count = pwndbg.config.default_visualize_chunk_number
+
+    if addr is not None and not pwndbg.aglib.memory.is_readable_address(int(addr)):
+        print(message.error("The provided address is not readable."))
+        return
 
     if addr is not None:
         cursor = int(addr)
@@ -1012,6 +1017,7 @@ def vis_heap_chunks(
     chunk = Chunk(cursor)
 
     chunk_id = 0
+    reached_mapping_end = False
     while True:
         if not all_chunks and chunk_id == count + 1:
             break
@@ -1019,6 +1025,7 @@ def vis_heap_chunks(
         # Don't read beyond the heap mapping if --beyond_top or corrupted heap.
         if cursor not in heap_region:
             chunk_delims.append(heap_region.end)
+            reached_mapping_end = True
             break
 
         # Don't repeatedly operate on the same address (e.g. chunk size of 0).
@@ -1030,8 +1037,13 @@ def vis_heap_chunks(
         else:
             chunk_delims.append(cursor)
 
-        if (chunk.is_top_chunk and not beyond_top) or (cursor == heap_region.end - ptr_size * 2):
+        if chunk.is_top_chunk and not beyond_top:
             chunk_delims.append(cursor + ptr_size * 2)
+            break
+
+        if cursor == heap_region.end - ptr_size * 2:
+            chunk_delims.append(cursor + ptr_size * 2)
+            reached_mapping_end = True
             break
 
         cursor += chunk.real_size
@@ -1048,12 +1060,15 @@ def vis_heap_chunks(
         generateColorFunction("blue"),
     ]
 
-    bin_collections = [
-        allocator.fastbins(arena.address),
-        allocator.unsortedbin(arena.address),
-        allocator.smallbins(arena.address),
-        allocator.largebins(arena.address),
-    ]
+    bin_collections = []
+    if arena is not None:
+        # Heap() Case 4; fake/mmapped chunk
+        bin_collections = [
+            allocator.fastbins(arena.address),
+            allocator.unsortedbin(arena.address),
+            allocator.smallbins(arena.address),
+            allocator.largebins(arena.address),
+        ]
     if allocator.has_tcache():
         # Only check for tcache entries belonging to the current thread,
         # it's difficult (impossible?) to find all the thread caches for a
@@ -1102,15 +1117,15 @@ def vis_heap_chunks(
             if printed % 2 == 0:
                 out += "\n0x%x" % cursor
 
-            data = pwndbg.gdblib.memory.read(cursor, ptr_size)
-            cell = pwndbg.gdblib.arch.unpack(data)
+            data = pwndbg.aglib.memory.read(cursor, ptr_size)
+            cell = pwndbg.aglib.arch.unpack(data)
             cell_hex = f"\t0x{cell:0{ptr_size * 2}x}"
 
             out += color_func(cell_hex)
             printed += 1
 
             labels.extend(bin_labels_map.get(cursor, []))
-            if cursor == arena.top:
+            if arena is not None and cursor == arena.top:
                 labels.append("Top chunk")
 
             asc += bin_ascii(data)
@@ -1122,6 +1137,9 @@ def vis_heap_chunks(
             cursor += ptr_size
 
     print(out)
+
+    if reached_mapping_end:
+        print(f"Reached end of memory mapping ({hex(heap_region.end)}).")
 
     if has_huge_chunk and pwndbg.config.max_visualize_chunk_size == 0:
         print(
@@ -1178,9 +1196,9 @@ def try_free(addr: str | int) -> None:
     addr = int(addr)
 
     # check hook
-    free_hook = pwndbg.gdblib.symbol.address("__free_hook")
+    free_hook = pwndbg.dbg.selected_inferior().symbol_address_from_name("__free_hook")
     if free_hook is not None:
-        if pwndbg.gdblib.memory.pvoid(free_hook) != 0:
+        if pwndbg.aglib.memory.pvoid(free_hook) != 0:
             print(message.success("__libc_free: will execute __free_hook"))
 
     # free(0) has no effect
@@ -1189,7 +1207,7 @@ def try_free(addr: str | int) -> None:
         return
 
     # constants
-    allocator = pwndbg.gdblib.heap.current
+    allocator = pwndbg.aglib.heap.current
     assert isinstance(allocator, GlibcMemoryAllocator)
     arena = allocator.thread_arena
     # arena might be None if the current thread doesn't allocate the arena
@@ -1203,7 +1221,7 @@ def try_free(addr: str | int) -> None:
     malloc_align_mask = allocator.malloc_align_mask
     chunk_minsize = allocator.minsize
 
-    ptr_size = pwndbg.gdblib.arch.ptrsize
+    ptr_size = pwndbg.aglib.arch.ptrsize
 
     def unsigned_size(size: int):
         # read_chunk()['size'] is signed in pwndbg ;/
@@ -1232,7 +1250,7 @@ def try_free(addr: str | int) -> None:
     # try to get the chunk
     try:
         chunk = read_chunk(addr)
-    except gdb.MemoryError:
+    except pwndbg.dbg_mod.Error:
         print(message.error(f"Can't read chunk at address 0x{addr:x}, memory error"))
         return
 
@@ -1296,11 +1314,11 @@ def try_free(addr: str | int) -> None:
         and "key" in allocator.tcache_entry.keys()
     ):
         tc_idx = (chunk_size_unmasked - chunk_minsize + malloc_alignment - 1) // malloc_alignment
-        if allocator.mp is not None and tc_idx < allocator.mp["tcache_bins"]:
+        if allocator.mp is not None and tc_idx < int(allocator.mp["tcache_bins"]):
             print(message.notice("Tcache checks"))
             e = addr + 2 * size_sz
             e += allocator.tcache_entry.keys().index("key") * ptr_size
-            e = pwndbg.gdblib.memory.pvoid(e)
+            e = pwndbg.aglib.memory.pvoid(e)
             tcache_addr = int(allocator.thread_cache.address)
             if e == tcache_addr:
                 # todo, actually do checks
@@ -1332,7 +1350,7 @@ def try_free(addr: str | int) -> None:
 
         try:
             next_chunk = read_chunk(addr + chunk_size_unmasked)
-        except gdb.MemoryError as e:
+        except pwndbg.dbg_mod.Error as e:
             print(
                 message.error(
                     f"Can't read next chunk at address 0x{chunk + chunk_size_unmasked:x}, memory error"
@@ -1363,7 +1381,7 @@ def try_free(addr: str | int) -> None:
         if fastbin_top_chunk != 0:
             try:
                 fastbin_top_chunk = read_chunk(fastbin_top_chunk)
-            except gdb.MemoryError:
+            except pwndbg.dbg_mod.Error:
                 print(
                     message.error(
                         f"Can't read top fastbin chunk at address 0x{fastbin_top_chunk:x}, memory error"
@@ -1419,7 +1437,7 @@ def try_free(addr: str | int) -> None:
         try:
             next_chunk = read_chunk(next_chunk_addr)
             next_chunk_size = chunksize(unsigned_size(next_chunk["size"]))
-        except (OverflowError, gdb.MemoryError):
+        except (OverflowError, pwndbg.dbg_mod.Error):
             print(message.error(f"Can't read next chunk at address 0x{next_chunk_addr:x}"))
             finalize(errors_found, returned_before_error)
             return
@@ -1449,7 +1467,7 @@ def try_free(addr: str | int) -> None:
             try:
                 prev_chunk = read_chunk(prev_chunk_addr)
                 prev_chunk_size = chunksize(unsigned_size(prev_chunk["size"]))
-            except (OverflowError, gdb.MemoryError):
+            except (OverflowError, pwndbg.dbg_mod.Error):
                 print(message.error(f"Can't read next chunk at address 0x{prev_chunk_addr:x}"))
                 finalize(errors_found, returned_before_error)
                 return
@@ -1472,7 +1490,7 @@ def try_free(addr: str | int) -> None:
             try:
                 next_next_chunk_addr = next_chunk_addr + next_chunk_size
                 next_next_chunk = read_chunk(next_next_chunk_addr)
-            except (OverflowError, gdb.MemoryError):
+            except (OverflowError, pwndbg.dbg_mod.Error):
                 print(message.error(f"Can't read next chunk at address 0x{next_next_chunk_addr:x}"))
                 finalize(errors_found, returned_before_error)
                 return
@@ -1501,14 +1519,14 @@ def try_free(addr: str | int) -> None:
                         )
                         print(message.error(err))
                         errors_found += 1
-                except (OverflowError, gdb.MemoryError):
+                except (OverflowError, pwndbg.dbg_mod.Error):
                     print(
                         message.error(
                             f"Can't read chunk at 0x{unsorted['fd']:x}, it is unsorted bin fd"
                         )
                     )
                     errors_found += 1
-            except (OverflowError, gdb.MemoryError):
+            except (OverflowError, pwndbg.dbg_mod.Error):
                 print(message.error(f"Can't read unsorted bin chunk at 0x{unsorted_addr:x}"))
                 errors_found += 1
 

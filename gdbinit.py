@@ -73,6 +73,7 @@ def update_deps(src_root: Path, venv_path: Path) -> None:
 
     # If the hashes don't match, update the dependencies
     if current_hash != stored_hash:
+        print("Detected outdated Pwndbg dependencies (poetry.lock). Updating.")
         poetry_path = find_poetry()
         if poetry_path is None:
             print(
@@ -172,8 +173,15 @@ def main() -> None:
         fixup_paths(src_root, venv_path)
 
     # Force UTF-8 encoding (to_string=True to skip output appearing to the user)
-    gdb.execute("set charset UTF-8", to_string=True)
-    os.environ["PWNLIB_NOTERM"] = "1"
+    try:
+        gdb.execute("set target-wide-charset UTF-8", to_string=True)
+        gdb.execute("set charset UTF-8", to_string=True)
+    except gdb.error as e:
+        print(f"Warning: Cannot set gdb charset: '{e}'")
+
+    # Add the original stdout methods back to gdb._GdbOutputFile for pwnlib colors
+    sys.stdout.isatty = sys.__stdout__.isatty
+    sys.stdout.fileno = sys.__stdout__.fileno
 
     import pwndbg  # noqa: F811
     import pwndbg.dbg.gdb

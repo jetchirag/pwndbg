@@ -6,6 +6,7 @@ from typing import Tuple
 
 import gdb
 
+import pwndbg
 import pwndbg.commands
 import pwndbg.commands.context
 import pwndbg.decorators
@@ -16,6 +17,7 @@ import pwndbg.lib.cache
 import pwndbg.profiling
 from pwndbg.color import disable_colors
 from pwndbg.color import message
+from pwndbg.dbg import EventType
 from pwndbg.lib.tips import color_tip
 from pwndbg.lib.tips import get_tip_of_the_day
 
@@ -79,6 +81,7 @@ def prompt_hook(*a: Any) -> None:
         cur = new
 
     if pwndbg.gdblib.proc.alive and pwndbg.gdblib.proc.thread_is_stopped and not context_shown:
+        pwndbg.commands.context.selected_history_index = None
         pwndbg.commands.context.context()
         context_shown = True
 
@@ -88,7 +91,7 @@ def prompt_hook(*a: Any) -> None:
         set_prompt()
 
 
-@pwndbg.gdblib.events.cont
+@pwndbg.dbg.event_handler(EventType.CONTINUE)
 def reset_context_shown(*a: Any) -> None:
     global context_shown
     context_shown = False

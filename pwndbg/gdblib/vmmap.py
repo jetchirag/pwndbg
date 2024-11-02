@@ -16,11 +16,11 @@ from typing import Tuple
 
 import gdb
 
+import pwndbg
 import pwndbg.auxv
 import pwndbg.color.message as M
 import pwndbg.gdblib.abi
 import pwndbg.gdblib.elf
-import pwndbg.gdblib.events
 import pwndbg.gdblib.file
 import pwndbg.gdblib.info
 import pwndbg.gdblib.kernel
@@ -137,7 +137,7 @@ def get() -> Tuple[pwndbg.lib.memory.Page, ...]:
         return proc_maps
 
     pages: List[pwndbg.lib.memory.Page] = []
-    if pwndbg.gdblib.qemu.is_qemu_kernel() and pwndbg.gdblib.arch.current in (
+    if pwndbg.gdblib.qemu.is_qemu_kernel() and pwndbg.aglib.arch.current in (
         "i386",
         "x86-64",
         "aarch64",
@@ -174,7 +174,7 @@ def get() -> Tuple[pwndbg.lib.memory.Page, ...]:
             pages.extend(info_sharedlibrary())
         else:
             if pwndbg.gdblib.qemu.is_qemu():
-                return (pwndbg.lib.memory.Page(0, pwndbg.gdblib.arch.ptrmask, 7, 0, "[qemu]"),)
+                return (pwndbg.lib.memory.Page(0, pwndbg.aglib.arch.ptrmask, 7, 0, "[qemu]"),)
             pages.extend(info_files())
 
         pages.extend(pwndbg.gdblib.stack.get().values())
@@ -269,17 +269,20 @@ def explore(address_maybe: int) -> pwndbg.lib.memory.Page | None:
 
     explored_pages.append(page)
 
+    # Clear the "get" cache so pages that are explored in the current step are included
+    get.cache.clear()  # type: ignore[attr-defined]
+
     return page
 
 
 # Automatically ensure that all registers are explored on each stop
-# @pwndbg.gdblib.events.stop
+# @pwndbg.dbg.event_handler(EventType.STOP)
 def explore_registers() -> None:
     for regname in pwndbg.gdblib.regs.common:
         find(pwndbg.gdblib.regs[regname])
 
 
-# @pwndbg.gdblib.events.exit
+# @pwndbg.dbg.event_handler(EventType.EXIT)
 def clear_explored_pages() -> None:
     while explored_pages:
         explored_pages.pop()
@@ -310,7 +313,7 @@ def coredump_maps() -> Tuple[pwndbg.lib.memory.Page, ...]:
     Parses `info proc mappings` and `maintenance info sections`
     and tries to make sense out of the result :)
     """
-    pages = list(info_proc_maps())
+    pages = list(info_proc_maps(parse_flags=False))
 
     started_sections = False
     for line in gdb.execute("maintenance info sections", to_string=True).splitlines():
@@ -389,13 +392,23 @@ def coredump_maps() -> Tuple[pwndbg.lib.memory.Page, ...]:
                 page.offset = 0
                 break
 
+    pages.sort(key=lambda page: page.start)
     return tuple(pages)
 
 
-def parse_info_proc_mappings_line(line: str, parse_flags: bool) -> Optional[pwndbg.lib.memory.Page]:
+def parse_info_proc_mappings_line(
+    line: str, perms_available: bool, parse_flags: bool
+) -> Optional[pwndbg.lib.memory.Page]:
     """
     Parse a line from `info proc mappings` and return a pwndbg.lib.memory.Page
     object if the line is valid.
+
+    Example lines:
+        0x4c3000           0x4c5000     0x2000    0xc2000  rw-p   /root/hello_world/main
+        0x4c5000           0x4cb000     0x6000        0x0  rw-p
+
+    The objfile column might be empty, and the permissions column is only present in GDB versions >= 12.1
+    https://github.com/bminor/binutils-gdb/commit/29ef4c0699e1b46d41ade00ae07a54f979ea21cc
 
     Args:
         line: A line from `info proc mappings`.
@@ -403,20 +416,23 @@ def parse_info_proc_mappings_line(line: str, parse_flags: bool) -> Optional[pwnd
     Returns:
         A pwndbg.lib.memory.Page object or None.
     """
-
-    # We look for lines like:
-    # ['0x555555555000', '0x555555556000', '0x1000', '0x1000', 'rw-p', '/home/user/a.out']
     try:
+        # Example line with all fields present: ['0x555555555000', '0x555555556000', '0x1000', '0x1000', 'rw-p', '/home/user/a.out']
         split_line = line.split()
 
-        # Permission info is only available in GDB versions >=12.1
-        # https://github.com/bminor/binutils-gdb/commit/29ef4c0699e1b46d41ade00ae07a54f979ea21cc
-        # Assume "rwxp" on older gdb versions
-        if len(split_line) < 6:
-            start_str, _end, size_str, offset_str, objfile = split_line
-            perm = "rwxp"
+        start_str = split_line[0]
+        _end = split_line[1]
+        size_str = split_line[2]
+        offset_str = split_line[3]
+
+        if perms_available:
+            perm = split_line[4]
+            # The objfile column may be empty.
+            objfile = split_line[5] if len(split_line) > 5 else ""
         else:
-            start_str, _end, size_str, offset_str, perm, objfile = split_line
+            perm = "rwxp"
+            objfile = split_line[4] if len(split_line) > 4 else ""
+
         start, size, offset = int(start_str, 16), int(size_str, 16), int(offset_str, 16)
     except (IndexError, ValueError):
         return None
@@ -434,9 +450,24 @@ def parse_info_proc_mappings_line(line: str, parse_flags: bool) -> Optional[pwnd
 
 
 @pwndbg.lib.cache.cache_until("start", "stop")
-def info_proc_maps(parse_flags=False) -> Tuple[pwndbg.lib.memory.Page, ...]:
+def info_proc_maps(parse_flags=True) -> Tuple[pwndbg.lib.memory.Page, ...]:
     """
     Parse the result of info proc mappings.
+
+    Example output:
+
+            Start Addr           End Addr       Size     Offset  Perms  objfile
+              0x400000           0x401000     0x1000        0x0  r--p   /root/hello_world/main
+              0x401000           0x497000    0x96000     0x1000  r-xp   /root/hello_world/main
+              0x497000           0x4be000    0x27000    0x97000  r--p   /root/hello_world/main
+              0x4be000           0x4c3000     0x5000    0xbd000  r--p   /root/hello_world/main
+              0x4c3000           0x4c5000     0x2000    0xc2000  rw-p   /root/hello_world/main
+              0x4c5000           0x4cb000     0x6000        0x0  rw-p
+              0x4cb000           0x4ed000    0x22000        0x0  rw-p   [heap]
+        0x7ffff7ff9000     0x7ffff7ffd000     0x4000        0x0  r--p   [vvar]
+        0x7ffff7ffd000     0x7ffff7fff000     0x2000        0x0  r-xp   [vdso]
+        0x7ffffffde000     0x7ffffffff000    0x21000        0x0  rw-p   [stack]
+    0xffffffffff600000 0xffffffffff601000     0x1000        0x0  --xp   [vsyscall]
 
     Note: this may return no pages due to a bug/behavior of GDB.
     See https://sourceware.org/bugzilla/show_bug.cgi?id=31207
@@ -453,9 +484,12 @@ def info_proc_maps(parse_flags=False) -> Tuple[pwndbg.lib.memory.Page, ...]:
         # On qemu user emulation, we may get: gdb.error: Not supported on this target.
         info_proc_mappings = []
 
+    # See if "Perms" is in the header line
+    perms_available = len(info_proc_mappings) >= 4 and "Perms" in info_proc_mappings[3]
+
     pages: List[pwndbg.lib.memory.Page] = []
     for line in info_proc_mappings:
-        page = parse_info_proc_mappings_line(line, parse_flags)
+        page = parse_info_proc_mappings_line(line, perms_available, parse_flags)
         if page is not None:
             pages.append(page)
 
@@ -621,10 +655,10 @@ def kernel_vmmap_via_monitor_info_mem() -> Tuple[pwndbg.lib.memory.Page, ...]:
         # these cases in a `finally` block instead of an `except` block.
         if monitor_info_mem is None or "unknown command" in monitor_info_mem:
             # TODO: Find out which other architectures don't support this command
-            if pwndbg.gdblib.arch.name == "aarch64":
+            if pwndbg.aglib.arch.name == "aarch64":
                 print(
                     M.error(
-                        f"The {pwndbg.gdblib.arch.name} architecture does"
+                        f"The {pwndbg.aglib.arch.name} architecture does"
                         " not support the `monitor info mem` command. Run "
                         "`help show kernel-vmmap` for other options."
                     )

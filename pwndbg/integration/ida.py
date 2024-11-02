@@ -25,16 +25,16 @@ from typing_extensions import Concatenate
 from typing_extensions import ParamSpec
 
 import pwndbg
+import pwndbg.aglib.arch
 import pwndbg.decorators
-import pwndbg.gdblib.arch
 import pwndbg.gdblib.elf
-import pwndbg.gdblib.events
 import pwndbg.gdblib.memory
 import pwndbg.gdblib.regs
 import pwndbg.integration
 import pwndbg.lib.cache
 import pwndbg.lib.funcparser
 from pwndbg.color import message
+from pwndbg.dbg import EventType
 from pwndbg.lib.functions import Function
 
 ida_rpc_host = pwndbg.config.add_param("ida-rpc-host", "127.0.0.1", "ida xmlrpc server address")
@@ -180,7 +180,7 @@ def l2r(addr: int) -> int:
     exe = pwndbg.gdblib.elf.exe()
     if not exe:
         raise Exception("Can't find EXE base")
-    result = (addr - int(exe.address) + base()) & pwndbg.gdblib.arch.ptrmask
+    result = (addr - int(exe.address) + base()) & pwndbg.aglib.arch.ptrmask
     return result
 
 
@@ -188,7 +188,7 @@ def r2l(addr: int) -> int:
     exe = pwndbg.gdblib.elf.exe()
     if not exe:
         raise Exception("Can't find EXE base")
-    result = (addr - base() + int(exe.address)) & pwndbg.gdblib.arch.ptrmask
+    result = (addr - base() + int(exe.address)) & pwndbg.aglib.arch.ptrmask
     return result
 
 
@@ -285,8 +285,8 @@ def GetBptEA(i: int) -> int:
 _breakpoints: List[gdb.Breakpoint] = []
 
 
-@pwndbg.gdblib.events.cont
-@pwndbg.gdblib.events.stop
+@pwndbg.dbg.event_handler(EventType.CONTINUE)
+@pwndbg.dbg.event_handler(EventType.STOP)
 @withIDA
 def UpdateBreakpoints() -> None:
     # XXX: Remove breakpoints from IDA when the user removes them.
@@ -317,7 +317,7 @@ def SetColor(pc, color):
 colored_pc = None
 
 
-@pwndbg.gdblib.events.stop
+@pwndbg.dbg.event_handler(EventType.STOP)
 @withIDA
 def Auto_Color_PC() -> None:
     global colored_pc
@@ -325,7 +325,7 @@ def Auto_Color_PC() -> None:
     SetColor(colored_pc, 0x7F7FFF)
 
 
-@pwndbg.gdblib.events.cont
+@pwndbg.dbg.event_handler(EventType.CONTINUE)
 @withIDA
 def Auto_UnColor_PC() -> None:
     global colored_pc

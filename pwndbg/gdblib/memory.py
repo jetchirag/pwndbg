@@ -11,8 +11,7 @@ from typing import Union
 
 import gdb
 
-import pwndbg.gdblib.arch
-import pwndbg.gdblib.events
+import pwndbg.aglib.arch
 import pwndbg.gdblib.qemu
 import pwndbg.gdblib.typeinfo
 import pwndbg.gdblib.vmmap
@@ -112,8 +111,8 @@ def write(addr: int, data: str | bytes | bytearray) -> None:
     gdb.selected_inferior().write_memory(addr, data)
 
 
-def peek(address: int) -> str | None:
-    """peek(address) -> str
+def peek(address: int) -> bytearray | None:
+    """peek(address) -> bytearray
 
     Read one byte from the specified address.
 
@@ -121,11 +120,11 @@ def peek(address: int) -> str | None:
         address(int): Address to read
 
     Returns:
-        :class:`str`: A single byte of data, or ``None`` if the
+        :class:`bytearray`: A single byte of data, or ``None`` if the
         address cannot be read.
     """
     try:
-        return chr(read(address, 1)[0])
+        return read(address, 1)
     except Exception:
         pass
     return None
@@ -273,7 +272,7 @@ def u(addr: int, size: int | None = None) -> int:
     to the pointer width.
     """
     if size is None:
-        size = pwndbg.gdblib.arch.ptrsize * 8
+        size = pwndbg.aglib.arch.ptrsize * 8
     return {8: u8, 16: u16, 32: u32, 64: u64}[size](addr)
 
 
@@ -353,8 +352,8 @@ def find_upper_boundary(addr: int, max_pages: int = 1024) -> int:
             # Sanity check in case a custom GDB server/stub
             # incorrectly returns a result from read
             # (this is most likely redundant, but its ok to keep it?)
-            if addr > pwndbg.gdblib.arch.ptrmask:
-                return pwndbg.gdblib.arch.ptrmask
+            if addr > pwndbg.aglib.arch.ptrmask:
+                return pwndbg.aglib.arch.ptrmask
     except gdb.MemoryError:
         pass
     return addr
@@ -385,8 +384,7 @@ def find_lower_boundary(addr: int, max_pages: int = 1024) -> int:
 
 def update_min_addr() -> None:
     global MMAP_MIN_ADDR
-    if pwndbg.gdblib.qemu.is_qemu_kernel():
-        MMAP_MIN_ADDR = 0
+    MMAP_MIN_ADDR = 0 if pwndbg.gdblib.qemu.is_qemu_kernel() else 0x8000
 
 
 def fetch_struct_as_dictionary(
@@ -434,9 +432,7 @@ def pack_struct_into_dictionary(
 def convert_gdb_value_to_python_value(gdb_value: gdb.Value) -> int | GdbDict:
     gdb_type = gdb_value.type.strip_typedefs()
 
-    if gdb_type.code == gdb.TYPE_CODE_PTR:
-        return int(gdb_value)
-    elif gdb_type.code == gdb.TYPE_CODE_INT:
+    if gdb_type.code == gdb.TYPE_CODE_PTR or gdb_type.code == gdb.TYPE_CODE_INT:
         return int(gdb_value)
     elif gdb_type.code == gdb.TYPE_CODE_STRUCT:
         return pack_struct_into_dictionary(gdb_value)

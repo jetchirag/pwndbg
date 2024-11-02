@@ -13,7 +13,7 @@ target_address = None
 
 
 def check_result(result, expected_size):
-    ptrsize = pwndbg.gdblib.arch.ptrsize
+    ptrsize = pwndbg.aglib.arch.ptrsize
 
     matches = re.findall(r"\bAddr: (0x[0-9a-f]+)", result)
     assert len(matches) == 1
@@ -48,7 +48,7 @@ def test_find_fake_fast_command(start_binary):
     gdb.execute("continue")
 
     # Ensure memory at fake_chunk's heap_info struct isn't mapped.
-    unmapped_heap_info = pwndbg.gdblib.heap.ptmalloc.heap_for_ptr(
+    unmapped_heap_info = pwndbg.aglib.heap.ptmalloc.heap_for_ptr(
         int(gdb.lookup_global_symbol("fake_chunk").value())
     )
     assert pwndbg.gdblib.memory.peek(unmapped_heap_info) is None

@@ -107,20 +107,34 @@ class module(ModuleType):
         return "It stopped with signal " in gdb.execute("info program", to_string=True)
 
     @property
+    @pwndbg.lib.cache.cache_until("objfile")
     def exe(self) -> str | None:
         """
-        Returns the debugged file name.
+        Returns the executed file path.
 
-        On remote targets, this may be prefixed with "target:" string.
-        See this by executing those in two terminals:
-        1. gdbserver 127.0.0.1:1234 /bin/ls
-        2. gdb -ex "target remote :1234" -ex "pi pwndbg.gdblib.proc.exe"
+        On remote targets, this path may not exist locally.
 
-        If you need to process the debugged file use:
-            `pwndbg.gdblib.file.get_proc_exe_file()`
-            (This will call `pwndbg.gdblib.file.get_file(pwndbg.gdblib.proc.exe, try_local_path=True)`)
+        If you need the locally referenced file use:
+            `gdb.current_process().filename`
+
+        info proc exe is the only command to actually get the executed file path.
+        The gdb `file` command overwrites all internal references, this includes:
+        + `filename`
+        + `executable_filename`
+        + `symbol_file`
+        + `objfiles`
+        `run` executes the current file
+
+        If you find a better solution please create a PR <3.
+
+        Also refer to pwngdb.dbg.gdb.main_module_name
         """
-        return gdb.current_progspace().filename
+
+        if not self.alive:
+            return gdb.current_progspace().filename
+
+        exe = gdb.execute("info proc exe", to_string=True)
+        return exe[exe.find("exe = '") + 7 : exe.rfind("'")]
 
     @property
     @pwndbg.lib.cache.cache_until("start", "stop")
@@ -188,7 +202,7 @@ class module(ModuleType):
     ) -> Callable[[Callable[P, T]], Callable[P, Optional[T]]]:
         """Decorates function to work only with the specified archictectures."""
         for arch in arch_names:
-            if arch not in pwndbg.gdblib.arch_mod.ARCHS:
+            if arch not in pwndbg.aglib.arch_mod.ARCHS:
                 raise ValueError(
                     f"OnlyWithArch used with unsupported arch={arch}. Must be one of {', '.join(arch_names)}"
                 )
@@ -196,7 +210,7 @@ class module(ModuleType):
         def decorator(function: Callable[P, T]) -> Callable[P, Optional[T]]:
             @functools.wraps(function)
             def _OnlyWithArch(*a: P.args, **kw: P.kwargs) -> Optional[T]:
-                if pwndbg.gdblib.arch.name in arch_names:
+                if pwndbg.aglib.arch.name in arch_names:
                     return function(*a, **kw)
                 else:
                     return None

@@ -97,13 +97,17 @@ install_apt() {
         gdb-multiarch \
         parallel \
         netcat-openbsd \
+        iproute2 \
         qemu-system-x86 \
         qemu-system-arm \
         qemu-user \
         gcc-aarch64-linux-gnu \
-        gcc-riscv64-linux-gnu
+        gcc-riscv64-linux-gnu \
+        gcc-arm-linux-gnueabihf \
+        gcc-mips-linux-gnu \
+        gcc-mips64-linux-gnuabi64
 
-    if [[ "$1" != "" && "$1" != "20.04" ]]; then
+    if [[ "$1" != "" ]]; then
         sudo apt install shfmt
     fi
 

@@ -1,6 +1,3 @@
-# The `arch` module can be accessed with `from pwndbg.gdblib.arch import arch_mod`,
-# while `pwndbg.gdblib.arch` will represent the `Arch` object
-
 from __future__ import annotations
 
 import re
@@ -8,9 +5,7 @@ from types import ModuleType
 
 import gdb
 
-from pwndbg.gdblib import arch as arch_mod
 from pwndbg.gdblib import config as config_mod
-from pwndbg.gdblib.arch import arch as arch
 
 regs = None
 
@@ -31,17 +26,7 @@ def load_gdblib() -> None:
     import pwndbg.gdblib.argv
     import pwndbg.gdblib.bpoint
     import pwndbg.gdblib.ctypes
-    import pwndbg.gdblib.disasm
-    import pwndbg.gdblib.disasm.aarch64
-    import pwndbg.gdblib.disasm.arm
-    import pwndbg.gdblib.disasm.mips
-    import pwndbg.gdblib.disasm.ppc
-    import pwndbg.gdblib.disasm.riscv
-    import pwndbg.gdblib.disasm.sparc
-    import pwndbg.gdblib.disasm.x86
-    import pwndbg.gdblib.dynamic
     import pwndbg.gdblib.elf
-    import pwndbg.gdblib.events
     import pwndbg.gdblib.functions
     import pwndbg.gdblib.got
     import pwndbg.gdblib.hooks
@@ -51,6 +36,7 @@ def load_gdblib() -> None:
     import pwndbg.gdblib.prompt
     import pwndbg.gdblib.regs as regs_mod
     import pwndbg.gdblib.symbol
+    import pwndbg.gdblib.tui
     import pwndbg.gdblib.typeinfo
     import pwndbg.gdblib.vmmap
 

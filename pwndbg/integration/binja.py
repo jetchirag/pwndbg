@@ -28,12 +28,11 @@ import pygments.token
 from typing_extensions import ParamSpec
 
 import pwndbg
+import pwndbg.aglib.arch
 import pwndbg.color
 import pwndbg.color.context as context_color
 import pwndbg.decorators
-import pwndbg.gdblib.arch
 import pwndbg.gdblib.elf
-import pwndbg.gdblib.events
 import pwndbg.gdblib.memory
 import pwndbg.gdblib.nearpc
 import pwndbg.gdblib.regs
@@ -43,6 +42,7 @@ import pwndbg.lib.cache
 import pwndbg.lib.config
 from pwndbg.color import message
 from pwndbg.color import theme
+from pwndbg.dbg import EventType
 from pwndbg.gdblib.nearpc import c as nearpc_color
 from pwndbg.gdblib.nearpc import ljust_padding
 from pwndbg.lib.functions import Argument
@@ -153,13 +153,24 @@ def init_bn_rpc_client() -> None:
 
 
 def with_bn(fallback: K = None) -> Callable[[Callable[P, T]], Callable[P, T | K]]:
+    global _bn
+
     def decorator(func: Callable[P, T]) -> Callable[P, T | K]:
+        global _bn
+
         @functools.wraps(func)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> T | K:
+            global _bn
             if _bn is None:
                 init_bn_rpc_client()
-            if _bn is not None:
-                return func(*args, **kwargs)
+
+            try:
+                if _bn is not None:
+                    return func(*args, **kwargs)
+            except ConnectionRefusedError:
+                print(message.error("[!] Binary Ninja connection refused"))
+                _bn = None
+
             return fallback
 
         return wrapper
@@ -181,7 +192,7 @@ def l2r(addr: int) -> int:
     exe = pwndbg.gdblib.elf.exe()
     if not exe:
         raise Exception("Can't find EXE base")
-    result = (addr - pwndbg.gdblib.proc.binary_base_addr + base()) & pwndbg.gdblib.arch.ptrmask
+    result = (addr - pwndbg.gdblib.proc.binary_base_addr + base()) & pwndbg.aglib.arch.ptrmask
     return result
 
 
@@ -189,7 +200,7 @@ def r2l(addr: int) -> int:
     exe = pwndbg.gdblib.elf.exe()
     if not exe:
         raise Exception("Can't find EXE base")
-    result = (addr - base() + pwndbg.gdblib.proc.binary_base_addr) & pwndbg.gdblib.arch.ptrmask
+    result = (addr - base() + pwndbg.gdblib.proc.binary_base_addr) & pwndbg.aglib.arch.ptrmask
     return result
 
 
@@ -198,9 +209,11 @@ def base():
     return _bn.get_base()
 
 
-@pwndbg.gdblib.events.stop
+@pwndbg.dbg.event_handler(EventType.STOP)
 @with_bn()
 def auto_update_pc() -> None:
+    if not pwndbg.gdblib.proc.alive:
+        return
     pc = pwndbg.gdblib.regs.pc
     if bn_autosync.value:
         navigate_to(pc)
@@ -210,11 +223,13 @@ def auto_update_pc() -> None:
 _managed_bps: Dict[int, gdb.Breakpoint] = {}
 
 
-@pwndbg.gdblib.events.start
-@pwndbg.gdblib.events.stop
-@pwndbg.gdblib.events.cont
+@pwndbg.dbg.event_handler(EventType.START)
+@pwndbg.dbg.event_handler(EventType.STOP)
+@pwndbg.dbg.event_handler(EventType.CONTINUE)
 @with_bn()
 def auto_update_bp() -> None:
+    if not pwndbg.gdblib.proc.alive:
+        return
     bps: List[int] = _bn.get_bp_tags()
     binja_bps = {r2l(addr) for addr in bps}
     for k in _managed_bps.keys() - binja_bps:
@@ -224,8 +239,8 @@ def auto_update_bp() -> None:
         _managed_bps[k] = bp
 
 
-@pwndbg.gdblib.events.cont
-@pwndbg.gdblib.events.exit
+@pwndbg.dbg.event_handler(EventType.CONTINUE)
+@pwndbg.dbg.event_handler(EventType.EXIT)
 @with_bn()
 def auto_clear_pc() -> None:
     _bn.clear_pc_tag()

@@ -11,12 +11,10 @@ from itertools import chain
 import capstone
 import gdb
 
-import pwndbg.gdblib.disasm
-import pwndbg.gdblib.events
+import pwndbg.aglib.disasm
 import pwndbg.gdblib.proc
 import pwndbg.gdblib.regs
 from pwndbg.color import message
-from pwndbg.gdblib.disasm.instruction import ALL_JUMP_GROUPS
 
 interrupts = {capstone.CS_GRP_INT}
 
@@ -37,34 +35,34 @@ def next_int(address=None):
     Otherwise, return None.
     """
     if address is None:
-        ins = pwndbg.gdblib.disasm.one(pwndbg.gdblib.regs.pc)
+        ins = pwndbg.aglib.disasm.one(pwndbg.gdblib.regs.pc)
         if not ins:
             return None
         address = ins.next
 
-    ins = pwndbg.gdblib.disasm.one(address)
+    ins = pwndbg.aglib.disasm.one(address)
     while ins:
-        if ins.groups_set & ALL_JUMP_GROUPS:
+        if ins.jump_like:
             return None
-        elif ins.groups_set & interrupts:
+        elif ins.groups & interrupts:
             return ins
-        ins = pwndbg.gdblib.disasm.one(ins.next)
+        ins = pwndbg.aglib.disasm.one(ins.next)
 
     return None
 
 
 def next_branch(address=None):
     if address is None:
-        ins = pwndbg.gdblib.disasm.one(pwndbg.gdblib.regs.pc)
+        ins = pwndbg.aglib.disasm.one(pwndbg.gdblib.regs.pc)
         if not ins:
             return None
         address = ins.next
 
-    ins = pwndbg.gdblib.disasm.one(address)
+    ins = pwndbg.aglib.disasm.one(address)
     while ins:
-        if ins.groups_set & ALL_JUMP_GROUPS:
+        if ins.jump_like:
             return ins
-        ins = pwndbg.gdblib.disasm.one(ins.next)
+        ins = pwndbg.aglib.disasm.one(ins.next)
 
     return None
 
@@ -77,7 +75,7 @@ def next_matching_until_branch(address=None, mnemonic=None, op_str=None):
     if address is None:
         address = pwndbg.gdblib.regs.pc
 
-    ins = pwndbg.gdblib.disasm.one(address)
+    ins = pwndbg.aglib.disasm.one(address)
     while ins:
         # Check whether or not the mnemonic matches if it was specified
         mnemonic_match = ins.mnemonic.casefold() == mnemonic.casefold() if mnemonic else True
@@ -102,12 +100,12 @@ def next_matching_until_branch(address=None, mnemonic=None, op_str=None):
         if mnemonic_match and op_str_match:
             return ins
 
-        if ins.groups_set & ALL_JUMP_GROUPS:
+        if ins.jump_like:
             # No matching instruction until the next branch, and we're
             # not trying to match the branch instruction itself.
             return None
 
-        ins = pwndbg.gdblib.disasm.one(ins.next)
+        ins = pwndbg.aglib.disasm.one(ins.next)
     return None
 
 
@@ -255,7 +253,7 @@ def break_on_program_code() -> bool:
 
 def break_on_next(address=None) -> None:
     address = address or pwndbg.gdblib.regs.pc
-    ins = pwndbg.gdblib.disasm.one(address)
+    ins = pwndbg.aglib.disasm.one(address)
 
     gdb.Breakpoint("*%#x" % (ins.address + ins.size), temporary=True)
     gdb.execute("continue", from_tty=False, to_string=True)

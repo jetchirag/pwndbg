@@ -61,6 +61,15 @@ install_emerge() {
     sudo emerge --oneshot --deep --newuse --changed-use --changed-deps dev-lang/python dev-debug/gdb
 }
 
+install_oma() {
+    sudo oma refresh || true
+    sudo oma install -y gdb gdbserver python-3 glib make glibc-dbg curl
+
+    if uname -m | grep -q x86_64; then
+        sudo oma install -y glibc+32-dbg || true
+    fi
+}
+
 install_pacman() {
     read -p "Do you want to do a full system update? (y/n) [n] " answer
     # user want to perform a full system upgrade
@@ -68,7 +77,7 @@ install_pacman() {
     if [[ "$answer" == "y" ]]; then
         sudo pacman -Syu || true
     fi
-    sudo pacman -S --noconfirm --needed git gdb python python-capstone python-unicorn python-pycparser python-psutil python-ptrace python-pyelftools python-six python-pygments which debuginfod curl
+    sudo pacman -S --noconfirm --needed git gdb python which debuginfod curl
     if ! grep -qs "^set debuginfod enabled on" ~/.gdbinit; then
         echo "set debuginfod enabled on" >> ~/.gdbinit
     fi
@@ -143,14 +152,12 @@ if linux; then
             ;;
         "gentoo")
             install_emerge
-            if ! hash sudo 2> /dev/null && whoami | grep root; then
-                sudo() {
-                    ${*}
-                }
-            fi
             ;;
         "freebsd")
             install_freebsd
+            ;;
+        "aosc")
+            install_oma
             ;;
         *) # we can add more install command for each distros.
             echo "\"$distro\" is not supported distro. Will search for 'apt', 'dnf' or 'pacman' package managers."
@@ -179,6 +186,15 @@ PYTHON+=$(gdb -batch -q --nx -ex 'pi import sys; print(sys.executable)')
 
 if ! osx; then
     PYTHON+="${PYVER}"
+fi
+
+# Check python version supported: <3.10, 3.99>
+is_supported=$(echo "$PYVER" | grep -E '3\.(10|11|12|13|14|15|16|17|18|19|[2-9][0-9])' || true)
+if [[ -z "$is_supported" ]]; then
+    echo "Your system has unsupported python version. Please use older pwndbg release:"
+    echo "'git checkout 2024.08.29' - python3.8, python3.9"
+    echo "'git checkout 2023.07.17' - python3.6, python3.7"
+    exit
 fi
 
 # Install Poetry

@@ -6,13 +6,13 @@ import gdb
 from capstone import *  # noqa: F403
 
 import pwndbg
+import pwndbg.aglib.disasm
 import pwndbg.arguments
 import pwndbg.color
 import pwndbg.color.context as C
 import pwndbg.color.disasm as D
 import pwndbg.color.theme
 import pwndbg.commands.comments
-import pwndbg.gdblib.disasm
 import pwndbg.gdblib.regs
 import pwndbg.gdblib.strings
 import pwndbg.gdblib.symbol
@@ -21,10 +21,8 @@ import pwndbg.integration
 import pwndbg.lib.config
 import pwndbg.lib.functions
 import pwndbg.ui
-from pwndbg.color import ColorConfig
-from pwndbg.color import ColorParamSpec
+from pwndbg.aglib.disasm.instruction import SplitType
 from pwndbg.color import message
-from pwndbg.gdblib.disasm.instruction import SplitType
 
 
 def ljust_padding(lst):
@@ -32,51 +30,17 @@ def ljust_padding(lst):
     return [s.ljust(longest_len) for s in lst]
 
 
-c = ColorConfig(
-    "nearpc",
-    [
-        ColorParamSpec("symbol", "normal", "color for nearpc command (symbol)"),
-        ColorParamSpec("address", "normal", "color for nearpc command (address)"),
-        ColorParamSpec("prefix", "none", "color for nearpc command (prefix marker)"),
-        ColorParamSpec("syscall-name", "red", "color for nearpc command (resolved syscall name)"),
-        ColorParamSpec("argument", "bold", "color for nearpc command (target argument)"),
-        ColorParamSpec(
-            "integration-comments", "bold", "color for nearpc command (integration comments)"
-        ),
-        ColorParamSpec("branch-marker", "normal", "color for nearpc command (branch marker line)"),
-    ],
-)
-
-nearpc_branch_marker = pwndbg.color.theme.add_param(
-    "nearpc-branch-marker", "    ↓", "branch marker line for nearpc command"
-)
-nearpc_branch_marker_contiguous = pwndbg.color.theme.add_param(
-    "nearpc-branch-marker-contiguous", " ", "contiguous branch marker line for nearpc command"
-)
-pwndbg.color.theme.add_param("highlight-pc", True, "whether to highlight the current instruction")
-pwndbg.color.theme.add_param("nearpc-prefix", "►", "prefix marker for nearpc command")
-pwndbg.config.add_param("left-pad-disasm", True, "whether to left-pad disassembly")
-nearpc_lines = pwndbg.config.add_param(
-    "nearpc-lines", 10, "number of additional lines to print for the nearpc command"
-)
-show_args = pwndbg.config.add_param(
-    "nearpc-show-args", True, "whether to show call arguments below instruction"
-)
-show_comments = pwndbg.config.add_param(
-    "nearpc-integration-comments", True, "whether to show comments from integration provider"
-)
-show_opcode_bytes = pwndbg.config.add_param(
-    "nearpc-num-opcode-bytes",
-    0,
-    "number of opcode bytes to print for each instruction",
-    param_class=pwndbg.lib.config.PARAM_ZUINTEGER,
-)
-opcode_separator_bytes = pwndbg.config.add_param(
-    "nearpc-opcode-separator-bytes",
-    1,
-    "number of spaces between opcode bytes",
-    param_class=pwndbg.lib.config.PARAM_ZUINTEGER,
-)
+# These would be repeated verbatim here. Since `aglib` is always present, just
+# import them from there, instead of trying to redefine the settings toggles
+# for `nearpc`.
+from pwndbg.aglib.nearpc import c
+from pwndbg.aglib.nearpc import nearpc_branch_marker
+from pwndbg.aglib.nearpc import nearpc_branch_marker_contiguous
+from pwndbg.aglib.nearpc import nearpc_lines
+from pwndbg.aglib.nearpc import opcode_separator_bytes
+from pwndbg.aglib.nearpc import show_args
+from pwndbg.aglib.nearpc import show_comments
+from pwndbg.aglib.nearpc import show_opcode_bytes
 
 
 def nearpc(
@@ -135,7 +99,7 @@ def nearpc(
     #         for line in symtab.linetable():
     #             pc_to_linenos[line.pc].append(line.line)
 
-    instructions, index_of_pc = pwndbg.gdblib.disasm.near(
+    instructions, index_of_pc = pwndbg.aglib.disasm.near(
         pc, lines, emulate=emulate, show_prev_insns=not repeat, use_cache=use_cache, linear=linear
     )
 
@@ -225,13 +189,13 @@ def nearpc(
                 # know where it's going yet. It could be going to either memory
                 # managed by libc or memory managed by the program itself.
 
-                if not pwndbg.gdblib.heap.current.is_initialized():
+                if not pwndbg.aglib.heap.current.is_initialized():
                     # The libc heap hasn't been initialized yet. There's not a
                     # lot that we can say beyond this point.
                     continue
-                allocator = pwndbg.gdblib.heap.current
+                allocator = pwndbg.aglib.heap.current
 
-                heap = pwndbg.gdblib.heap.ptmalloc.Heap(address)
+                heap = pwndbg.aglib.heap.ptmalloc.Heap(address)
                 chunk = None
                 for ch in heap:
                     # Find the chunk in this heap the corresponds to the address
