@@ -527,7 +527,7 @@ def test_jemalloc_find_extent(start_binary):
 
     expected_output = [
         "Jemalloc find extent",
-        "This command only support jemalloc 5.3.0",
+        "This command was tested only for jemalloc 5.3.0 and does not support lower versions",
         "",
         r"Pointer Address: " + re_match_valid_address,
         r"Extent Address: " + re_match_valid_address,
@@ -556,7 +556,7 @@ def test_jemalloc_extent_info(start_binary):
 
     expected_output = [
         "Jemalloc extent info",
-        "This command only support jemalloc 5.3.0",
+        "This command was tested only for jemalloc 5.3.0 and does not support lower versions",
         "",
         r"Allocated Address: " + re_match_valid_address,
         r"Extent Address: " + re_match_valid_address,
@@ -579,7 +579,7 @@ def test_jemalloc_heap(start_binary):
 
     expected_output = [
         "Jemalloc heap",
-        "This command only support jemalloc 5.3.0",
+        "This command was tested only for jemalloc 5.3.0 and does not support lower versions",
     ]
 
     expected_output += [
