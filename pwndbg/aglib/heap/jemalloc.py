@@ -251,6 +251,7 @@ class RTree:
 
         return (key >> shiftbits) & mask
 
+    @staticmethod
     def __alignment_addr2base(addr, alignment=64):
         return addr - (addr - (addr & (~(alignment - 1))))
 
@@ -272,20 +273,21 @@ class RTree:
         addr = int(self.root.address) + subkey * rtree_node_elm_s.sizeof
         node = pwndbg.gdblib.memory.fetch_struct_as_dictionary("rtree_node_elm_s", addr)
 
+        child_repr: int = node["child"]["repr"]  # type: ignore[index]
+
         # on node element, child contains the bits with which we can find another node or leaf element
-        if int(node["child"]["repr"]) == 0:
+        if child_repr == 0:
             return None
 
         # For subkey 1
         subkey = self.__subkey(key, 2)
-        addr = int(node["child"]["repr"]) + subkey * rtree_leaf_elm_s.sizeof
+        addr = child_repr + subkey * rtree_leaf_elm_s.sizeof
         leaf = pwndbg.gdblib.memory.fetch_struct_as_dictionary("rtree_leaf_elm_s", addr)
 
         # On leaf element, le_bits contains the virtual memory address bits so we can use it to find the extent address
-        if leaf["le_bits"]["repr"] == 0:
+        val: int = leaf["le_bits"]["repr"]  # type: ignore[index]
+        if val == 0:
             return None
-
-        val = int(leaf["le_bits"]["repr"])
 
         # In this function, we are trying to find the extent address given the address of memory block
         # that this extent is managing (which is represented by edata->e_addr in the extent structure)
@@ -305,7 +307,7 @@ class RTree:
         # return Extent(ptr)
         extent = Extent(ptr)
         if extent.size == 0:
-            ptr = RTree.__alignment_addr2base(int(ptr))
+            ptr = RTree.__alignment_addr2base(ptr)
             extent_tmp = Extent(ptr)
             if extent_tmp.size != 0:
                 return extent_tmp
@@ -337,34 +339,27 @@ class RTree:
                     )
                     node = pwndbg.gdblib.memory.pack_struct_into_dictionary(fetched_struct)
 
-                    if node["child"]["repr"] == 0:
+                    leaf0: int = node["child"]["repr"]  # type: ignore[index]
+                    if leaf0 == 0:
                         continue
 
-                    leaf0 = node["child"]["repr"]
                     # print(hex(leaf0))
-
                     # print("leaf0: ", leaf0)
 
                     # level 1
                     for j in range(max_subkeys):
-                        leaf_address = int(leaf0) + j * rtree_leaf_elm_s.sizeof
+                        leaf_address = leaf0 + j * rtree_leaf_elm_s.sizeof
                         # leaf = pwndbg.gdblib.memory.poi(rtree_leaf_elm_s, leaf)
                         fetched_struct = pwndbg.gdblib.memory.get_typed_pointer_value(
                             rtree_leaf_elm_s, leaf_address
                         )
                         leaf = pwndbg.gdblib.memory.pack_struct_into_dictionary(fetched_struct)
 
-                        if leaf["le_bits"]["repr"] == 0:
+                        if (val := int(leaf["le_bits"]["repr"])) == 0:  # type: ignore[index, arg-type]
                             continue
 
                         # print("leaf: ", hex(leaf_address))
-
                         # print(j, leaf)
-                        val = int(leaf["le_bits"]["repr"])
-
-                        if val == 0:
-                            # return None
-                            continue
 
                         ls = (val << RTREE_NHIB) & ((2**64) - 1)
                         ptr = ((ls >> RTREE_NHIB) >> 1) << 1
@@ -413,6 +408,7 @@ class Arena:
 
         self._nbins = None
         self._slabs = None
+        self._bins = None
 
     @property
     def slabs(self):
@@ -424,7 +420,7 @@ class Arena:
                     gdb.lookup_type("unsigned int")
                 )
 
-                bins_addr = int(self._Value["bins"].address)
+                bins_addr = int(self._Value["bins"]["address"])  # type: ignore[index, arg-type]
                 bin_s = pwndbg.gdblib.typeinfo.load("struct bin_s")
                 for i in range(self._nbins):
                     current_bin_addr = int(bins_addr) + i * bin_s.sizeof
