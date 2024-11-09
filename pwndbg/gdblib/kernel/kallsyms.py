@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from re import match
 from re import search
-from struct import unpack_from
+from struct import unpack_from, pack
 
 from pwnlib.util.packing import p16
 from pwnlib.util.packing import u32
@@ -165,27 +165,36 @@ class Kallsyms:
         0xffffffff827b32c8:	0x0094	0x0098	0x009b	0x009f	0x00a3	0x00a8	0x00ab	0x00b0
         """
         position = self.token_table
-
         token_table_head = self.kernel_ro_mem[position : position + 256]
+        token_offsets = []
 
-        token_offsets = [p16(0)]
-
+        # Gather token offsets
         pos = 0
-
         while True:
             pos = token_table_head.find(b"\0", pos + 1)
             if pos == -1:
                 break
-            token_offsets.append(p16(pos + 1))
+            token_offsets.append(pos + 1)
 
-        seq_to_find = b"".join(token_offsets)
+        # Generate sequences in both little-endian and big-endian formats
+        seq_to_find_le = b"".join(pack("<H", offset) for offset in token_offsets)
+        seq_to_find_be = b"".join(pack(">H", offset) for offset in token_offsets)
 
-        position = self.kernel_ro_mem.find(seq_to_find, self.token_table)
-        if position == -1:
+        # Search for little-endian sequence
+        position_le = self.kernel_ro_mem.find(seq_to_find_le, self.token_table)
+        # big-endian sequence
+        position_be = self.kernel_ro_mem.find(seq_to_find_be, self.token_table)
+
+        # Determine which endian format matched
+        if position_le != -1:
+            self.is_big_endian = False
+            return position_le
+        elif position_be != -1:
+            self.is_big_endian = True
+            return position_be
+        else:
             print(M.error("Unable to find the kallsyms_token_index"))
             return None
-
-        return position
 
     def find_markers(self) -> int | None:
         """
@@ -434,16 +443,20 @@ class Kallsyms:
         num_syms = 0
 
         while position + 1 < len(self.kernel_ro_mem):
+            # string abdrtvwginpcsu refers to symbol types. Full list can be viewed using `man nm`
+            # check if the current position in the memory is valid and if the next byte corresponds to a valid symbol type
             if (
                 self.kernel_ro_mem[position] < 2
                 or chr(self.kernel_ro_mem[position + 1]).lower() not in "abdrtvwginpcsu-?"
             ):
                 break
-
+            
+            # extract symbol name and type from the memory
             symbol_name_and_type = self.kernel_ro_mem[
                 position + 1 : position + 1 + self.kernel_ro_mem[position]
             ]
 
+            # ensure that the extracted symbol name and type are valid printable ASCII characters
             if not match(rb"^[\x21-\x7e]+$", symbol_name_and_type):
                 break
 
@@ -456,6 +469,8 @@ class Kallsyms:
 
         self.end_of_kallsyms_names_uncompressed = position
 
+        return True
+
     def find_markers_uncompressed(self):
         """
         This function searches for the kallsyms_markers structure in the kernel memory
@@ -467,10 +482,6 @@ class Kallsyms:
         max_number_of_space_between_two_nulls = 0
 
         # Go just after the first chunk of non-null bytes
-
-        # while position + 1 < len(self.kernel_img) and self.kernel_img[position + 1] == 0:
-        #     position += 1
-
         while position + 1 < len(self.kernel_ro_mem) and self.kernel_ro_mem[position + 1] == 0:
             position += 1
 
@@ -508,7 +519,7 @@ class Kallsyms:
         if max_number_of_space_between_two_nulls not in (2, 4, 8):
             print(M.error("Could not guess the architecture register size for kernel"))
             return None
-
+        
         self.offset_table_element_size = max_number_of_space_between_two_nulls
 
         # Once the size of a long has been guessed, use it to find
@@ -528,15 +539,9 @@ class Kallsyms:
         if position % self.offset_table_element_size == 0:
             position += self.offset_table_element_size
         else:
-            position += -position + self.offset_table_element_size
+            position = self.offset_table_element_size
 
-        position -= self.offset_table_element_size
-        position -= self.offset_table_element_size
-
+        position -= 2 * self.offset_table_element_size
         position -= position % self.offset_table_element_size
-
-        self.kallsyms_markers__offset = position
-
-        # print('Found kallsyms_markers at file offset 0x%08x' % position)
 
         return position
