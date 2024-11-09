@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from re import match
 from re import search
-from struct import unpack_from, pack
+from struct import pack
+from struct import unpack_from
 
-from pwnlib.util.packing import p16
 from pwnlib.util.packing import u32
 from pwnlib.util.packing import u64
 
@@ -450,7 +450,7 @@ class Kallsyms:
                 or chr(self.kernel_ro_mem[position + 1]).lower() not in "abdrtvwginpcsu-?"
             ):
                 break
-            
+
             # extract symbol name and type from the memory
             symbol_name_and_type = self.kernel_ro_mem[
                 position + 1 : position + 1 + self.kernel_ro_mem[position]
@@ -519,7 +519,7 @@ class Kallsyms:
         if max_number_of_space_between_two_nulls not in (2, 4, 8):
             print(M.error("Could not guess the architecture register size for kernel"))
             return None
-        
+
         self.offset_table_element_size = max_number_of_space_between_two_nulls
 
         # Once the size of a long has been guessed, use it to find
