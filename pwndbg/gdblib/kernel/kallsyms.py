@@ -455,6 +455,7 @@ class Kallsyms:
             return None
 
         self.end_of_kallsyms_names_uncompressed = position
+        return True
 
     def find_markers_uncompressed(self):
         """
