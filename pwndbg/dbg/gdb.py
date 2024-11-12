@@ -1230,9 +1230,19 @@ class GDB(pwndbg.dbg_mod.Debugger):
 
         return plines[-last:]
 
+    def custom_string_to_argv(self, command_string):
+        # match quoted strings with balanced parentheses
+        pattern = re.compile(r'(\$\w+\(.*?\))|(".*?"|\S+)')
+        matches = pattern.findall(command_string)
+        # flatten list
+        argv = [match[0] for match in matches if match[0]]
+        return argv
+
     @override
     def lex_args(self, command_line: str) -> List[str]:
-        return gdb.string_to_argv(command_line)
+        # return gdb.string_to_argv(command_line)
+        # gdb.string_to_argv() removes quotes from arguments, hence the custom implementation
+        return self.custom_string_to_argv(command_line)
 
     @override
     def selected_thread(self) -> pwndbg.dbg_mod.Thread | None:

@@ -67,3 +67,12 @@ def base(name_pattern: gdb.Value | str) -> int:
         if name in p.objfile:
             return p.vaddr
     raise ValueError(f"No mapping named {name}")
+
+
+@GdbFunction()
+def unhexify(hex_string: gdb.Value | str) -> int:
+    """Return hex data as pointer."""
+    if isinstance(hex_string, gdb.Value):
+        hex_string = hex_string.string()
+    pointer = pwndbg.lib.strings.hex_string_to_pointer(hex_string)
+    return int(pointer, 16)

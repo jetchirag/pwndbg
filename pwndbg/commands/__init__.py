@@ -762,6 +762,7 @@ def load_commands() -> None:
     import pwndbg.commands.sigreturn
     import pwndbg.commands.spray
     import pwndbg.commands.telescope
+    import pwndbg.commands.unhexify
     import pwndbg.commands.valist
     import pwndbg.commands.vmmap
     import pwndbg.commands.windbg
