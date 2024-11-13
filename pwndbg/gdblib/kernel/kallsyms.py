@@ -182,19 +182,18 @@ class Kallsyms:
 
         # Search for little-endian sequence
         position_le = self.kernel_ro_mem.find(seq_to_find_le, self.token_table)
-        # big-endian sequence
-        position_be = self.kernel_ro_mem.find(seq_to_find_be, self.token_table)
-
-        # Determine which endian format matched
         if position_le != -1:
             self.is_big_endian = False
             return position_le
-        elif position_be != -1:
+
+        # big-endian sequence
+        position_be = self.kernel_ro_mem.find(seq_to_find_be, self.token_table)
+        if position_be != -1:
             self.is_big_endian = True
             return position_be
-        else:
-            print(M.error("Unable to find the kallsyms_token_index"))
-            return None
+    
+        print(M.error("Unable to find the kallsyms_token_index"))
+        return None
 
     def find_markers(self) -> int | None:
         """
