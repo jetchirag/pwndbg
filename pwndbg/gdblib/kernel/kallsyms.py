@@ -191,7 +191,7 @@ class Kallsyms:
         if position_be != -1:
             self.is_big_endian = True
             return position_be
-    
+
         print(M.error("Unable to find the kallsyms_token_index"))
         return None
 
