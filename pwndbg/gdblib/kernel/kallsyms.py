@@ -467,6 +467,7 @@ class Kallsyms:
             return None
 
         self.end_of_kallsyms_names_uncompressed = position
+        return True
 
         return True
 

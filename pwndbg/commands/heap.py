@@ -1588,15 +1588,21 @@ def jemalloc_find_extent(addr) -> None:
 
     addr = int(addr)
 
-    rtree = jemalloc.RTree.get_rtree()
-    extent = rtree.lookup_hard(addr)
+    try:
+        rtree = jemalloc.RTree.get_rtree()
+        extent = rtree.lookup_hard(addr)
+        if extent is None:
+            print(message.error("ERROR: Extent not found"))
+            return
+        # print pointer address first, then extent address then extent information
+        print(f"Pointer Address: {hex(addr)}")
+        print(f"Extent Address: {hex(extent.extent_address)}")
+        print()
 
-    # print pointer address first, then extent address then extent information
-    print(f"Pointer Address: {hex(addr)}")
-    print(f"Extent Address: {hex(extent.extent_address)}")
-    print()
-
-    jemalloc_extent_info(extent.extent_address, header=False)
+        jemalloc_extent_info(extent.extent_address, header=False)
+    except pwndbg.dbg_mod.Error as e:
+        print(message.error(f"ERROR: {e}"))
+        return
 
 
 parser = argparse.ArgumentParser(description="Prints extent information for the given address")
@@ -1607,25 +1613,30 @@ parser.add_argument(
 
 
 @pwndbg.commands.ArgparsedCommand(parser, category=CommandCategory.HEAP)
-def jemalloc_extent_info(addr, verbose=False, header=True) -> None:
+def jemalloc_extent_info(addr, verbose=False, header=True) -> bool:
     if header:
         print(C.banner("Jemalloc extent info"))
         print("This command was tested only for jemalloc 5.3.0 and does not support lower versions")
         print()
 
-    extent = jemalloc.Extent(int(addr))
+    try:
+        extent = jemalloc.Extent(int(addr))
 
-    print(f"Allocated Address: {hex(extent.allocated_address)}")
-    print(f"Extent Address: {hex(extent.extent_address)}")
+        print(f"Allocated Address: {hex(extent.allocated_address)}")
+        print(f"Extent Address: {hex(extent.extent_address)}")
 
-    print(f"Size: {hex(extent.size)}")
-    print(f"Small class: {extent.has_slab}")
+        print(f"Size: {hex(extent.size)}")
+        print(f"Small class: {extent.has_slab}")
 
-    print(f"State: {extent.state_name}")
+        print(f"State: {extent.state_name}")
 
-    if verbose:
-        for bit, val in extent.bitfields.items():
-            print(bit, val)
+        if verbose:
+            for bit, val in extent.bitfields.items():
+                print(bit, val)
+    except pwndbg.dbg_mod.Error as e:
+        print(message.error(f"ERROR: {e}"))
+        return False
+    return True
 
 
 parser = argparse.ArgumentParser(description="Prints all extents information")
@@ -1637,9 +1648,17 @@ def jemalloc_heap() -> None:
     print("This command was tested only for jemalloc 5.3.0 and does not support lower versions")
     print()
 
-    rtree = jemalloc.RTree.get_rtree()
-    extents = rtree.extents
-    for extent in extents:
-        # TODO: refactor so not create copies
-        jemalloc_extent_info(extent.extent_address, header=False)
-        print()
+    try:
+        rtree = jemalloc.RTree.get_rtree()
+        extents = rtree.extents
+        if len(extents) == 0:
+            print(message.warn("No extents found"))
+            return
+        for extent in extents:
+            # TODO: refactor so not create copies
+            if not jemalloc_extent_info(extent.extent_address, header=False):
+                return
+            print()
+    except pwndbg.dbg_mod.Error as e:
+        print(message.error(f"ERROR: {e}"))
+        return

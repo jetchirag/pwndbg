@@ -452,9 +452,9 @@ class Chunk:
 
     def __contains__(self, addr: int) -> bool:
         """
-        This allow us to avoid extra constructions like 'if strart_addr <= ptr <= end_addr', etc.
+        This allow us to avoid extra constructions like 'if start_addr <= ptr < end_addr', etc.
         """
-        size_field_address = self._gdbValue[self.__match_renamed_field("size")].address
+        size_field_address = int(self._gdbValue[self.__match_renamed_field("size")].address)
         start_address = size_field_address if self.prev_inuse else self.address
 
         next = self.next_chunk()
@@ -462,10 +462,12 @@ class Chunk:
         if next is None:
             end_address = size_field_address + self.real_size
         else:
-            next_size_field_address = next._gdbValue[self.__match_renamed_field("size")].address
+            next_size_field_address = int(
+                next._gdbValue[self.__match_renamed_field("size")].address
+            )
             end_address = next_size_field_address if next.prev_inuse else next.address
 
-        return start_address <= addr < end_address  # type: ignore[operator]
+        return start_address <= addr < end_address
 
 
 class Heap:

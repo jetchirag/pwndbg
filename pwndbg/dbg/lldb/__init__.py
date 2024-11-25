@@ -4,6 +4,7 @@ import bisect
 import collections
 import os
 import random
+import shlex
 import sys
 from typing import Any
 from typing import Awaitable
@@ -319,6 +320,17 @@ class LLDBType(pwndbg.dbg_mod.Type):
     def __init__(self, inner: lldb.SBType):
         self.inner = inner
 
+    @override
+    def __eq__(self, rhs: object) -> bool:
+        assert isinstance(rhs, LLDBType), "tried to compare LLDBType to other type"
+        other: LLDBType = rhs
+
+        return self.inner == other.inner
+
+    @property
+    def name(self) -> str:
+        return self.inner.name
+
     @property
     @override
     def sizeof(self) -> int:
@@ -479,6 +491,10 @@ class LLDBValue(pwndbg.dbg_mod.Value):
             buf *= 2
 
         return last_str
+
+    @override
+    def value_to_human_readable(self) -> str:
+        return str(self.inner)
 
     @override
     def fetch_lazy(self) -> None:
@@ -1289,7 +1305,6 @@ class LLDBProcess(pwndbg.dbg_mod.Process):
         self,
         location: pwndbg.dbg_mod.BreakpointLocation | pwndbg.dbg_mod.WatchpointLocation,
         stop_handler: Callable[[pwndbg.dbg_mod.StopPoint], bool] | None = None,
-        one_shot: bool = False,
         internal: bool = False,
     ) -> pwndbg.dbg_mod.StopPoint:
         if isinstance(location, pwndbg.dbg_mod.BreakpointLocation):
@@ -1491,7 +1506,6 @@ class LLDB(pwndbg.dbg_mod.Debugger):
         pwndbg.commands.comments.init()
 
         import pwndbg.dbg.lldb.hooks
-        import pwndbg.dbg.lldb.pset
 
     @override
     def add_command(
@@ -1546,7 +1560,7 @@ class LLDB(pwndbg.dbg_mod.Debugger):
 
     @override
     def lex_args(self, command_line: str) -> List[str]:
-        return command_line.split()
+        return shlex.split(command_line)
 
     def _any_inferior(self) -> LLDBProcess | None:
         """

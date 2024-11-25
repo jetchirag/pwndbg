@@ -641,7 +641,6 @@ class GDBProcess(pwndbg.dbg_mod.Process):
         self,
         location: pwndbg.dbg_mod.BreakpointLocation | pwndbg.dbg_mod.WatchpointLocation,
         stop_handler: Callable[[pwndbg.dbg_mod.StopPoint], bool] | None = None,
-        one_shot: bool = False,
         internal: bool = False,
     ) -> pwndbg.dbg_mod.StopPoint:
         # GDB does not support creating new breakpoints in the middle of a
@@ -658,7 +657,6 @@ class GDBProcess(pwndbg.dbg_mod.Process):
                 f"*{location.address:#x}",
                 gdb.BP_BREAKPOINT,
                 internal=internal,
-                temporary=one_shot,
             )
         elif isinstance(location, pwndbg.dbg_mod.WatchpointLocation):
             if location.watch_read and location.watch_write:
@@ -673,7 +671,6 @@ class GDBProcess(pwndbg.dbg_mod.Process):
                 gdb.BP_WATCHPOINT,
                 wp_class=c,
                 internal=internal,
-                temporary=one_shot,
             )
 
         if internal:
@@ -910,6 +907,18 @@ class GDBType(pwndbg.dbg_mod.Type):
     def __init__(self, inner: gdb.Type):
         self.inner = inner
 
+    @override
+    def __eq__(self, rhs: object) -> bool:
+        assert isinstance(rhs, GDBType), "tried to compare GDBType to other type"
+        other: GDBType = rhs
+
+        return self.inner == other.inner
+
+    @property
+    @override
+    def name(self) -> str:
+        return str(self.inner)
+
     @property
     @override
     def sizeof(self) -> int:
@@ -997,7 +1006,17 @@ class GDBValue(pwndbg.dbg_mod.Value):
 
     @override
     def string(self) -> str:
-        return self.inner.string()
+        try:
+            return self.inner.string()
+        except gdb.error as e:
+            raise pwndbg.dbg_mod.Error(e)
+
+    @override
+    def value_to_human_readable(self) -> str:
+        try:
+            return str(self.inner)
+        except gdb.error as e:
+            raise pwndbg.dbg_mod.Error(e)
 
     @override
     def fetch_lazy(self) -> None:
@@ -1046,7 +1065,7 @@ class GDBValue(pwndbg.dbg_mod.Value):
 
     @override
     def __getitem__(self, key: str | int) -> pwndbg.dbg_mod.Value:
-        if self.inner.type.code == gdb.TYPE_CODE_STRUCT and isinstance(key, int):
+        if isinstance(key, int) and self.inner.type.strip_typedefs().code == gdb.TYPE_CODE_STRUCT:
             # GDB doesn't normally support indexing fields in a struct by int,
             # so we nudge it a little.
             key = self.inner.type.fields()[key]

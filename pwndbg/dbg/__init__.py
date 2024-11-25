@@ -437,7 +437,6 @@ class Process:
         self,
         location: BreakpointLocation | WatchpointLocation,
         stop_handler: Callable[[StopPoint], bool] | None = None,
-        one_shot: bool = False,
         internal: bool = False,
     ) -> StopPoint:
         """
@@ -453,11 +452,6 @@ class Process:
         as a signal to stop, and a return value of `False` being interpreted as
         a signal to continue execution. The extent of the actions that may be
         taken during the stop handler is determined by the debugger.
-
-        Breakpoints and watchpoints marked as `one_shot` are removed after they
-        are first triggered. For the purposes of `one_shot`, a breakpoint or
-        watchpoint that has a stop handler is only considered to be triggered
-        when its stop handler returns `True`.
 
         Marking a breakpoint or watchpoint as `internal` hints to the
         implementation that the created breakpoint or watchpoint should not be
@@ -590,6 +584,16 @@ class Type:
     """
 
     @property
+    def name(self) -> str:
+        """
+        Returns the name of this type, eg:
+        - char [16]
+        - int
+        - char *
+        - void *
+        """
+
+    @property
     def sizeof(self) -> int:
         """
         The size of this type, in bytes.
@@ -664,6 +668,12 @@ class Type:
         # if there is a better debugger-specific way to do this.
         return [field.name for field in self.fields()]
 
+    def __eq__(self, rhs: object) -> bool:
+        """
+        Returns True if types are the same
+        """
+        raise NotImplementedError()
+
 
 class Value:
     """
@@ -716,6 +726,23 @@ class Value:
     def string(self) -> str:
         """
         If this value is a string, then this method converts it to a Python string.
+        """
+        raise NotImplementedError()
+
+    def value_to_human_readable(self) -> str:
+        """
+        Converts a Value to a human-readable string representation.
+
+        The format is similar to what is produced by the `str()` function for gdb.Value,
+        displaying nested fields and pointers in a user-friendly way.
+
+        **Usage Notes:**
+        - This function is intended solely for displaying results to the user.
+        - The output format may differ between debugger implementations (e.g., GDB vs LLDB),
+          as each debugger may format values differently. For instance:
+            - GDB might produce: '{\n  value = 0,\n  inner = {\n    next = 0x555555558098 <inner_a_node_b+8>\n  }\n}'
+            - LLDB might produce: '(inner_a_node) *$PWNDBG_CREATED_VALUE_0 = {\n  value = 0\n  inner = {\n    next = 0x0000555555558098\n  }\n}'
+        - As such, this function should not be relied upon for parsing or programmatic use.
         """
         raise NotImplementedError()
 
